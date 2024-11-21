@@ -1,4 +1,4 @@
 # Weather Tracker Code Example App
 SwiftUI, Swift Concurrency, XCTests
 
-![Weather Tracker Smaller Frame](https://github.com/user-attachments/assets/5891d1f1-cc48-45fe-a96d-ca5d93c85418)
+![Weather Tracker Smallest Frame](https://github.com/user-attachments/assets/0ef33151-8e2e-4da3-a900-a16a97ac6993)
