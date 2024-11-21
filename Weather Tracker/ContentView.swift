@@ -6,50 +6,112 @@
 //
 
 import SwiftUI
-import SwiftData
+import Combine
+
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
+    @AppStorage(fahrenheitInsteadOfCelsiusKey) var fahrenheitInsteadOfCelsius: Bool = false
+    @StateObject private var viewModel = WeatherViewModel()
+    @State private var searchText = ""
+    @State private var isSearching = false
+    @State private var cancellable: AnyCancellable?
+    
+    private let debouncer = Debouncer(delay: 0.6)
+    
+    enum Constants {
+        static let noCitySelectedMessage = "No City Selected"
+        static let searchPromptPrefix = "Please"
+        static let searchPromptSuffixSearch = "Search For"
+        static let searchPromptSuffixSelect = "Select"
+        static let searchPromptSuffixCity = "A City"
+    }
+    
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+        NavigationView {
+            ZStack(alignment: .bottomTrailing) {
+                VStack {
+                    searchBar
+                    if viewModel.searchResults.isEmpty {
+                        weatherContent
                     }
                 }
-                .onDelete(perform: deleteItems)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .onChange(of: searchText, perform: handleSearchTextChange)
+                
+                toggleFahrenheitInsteadOfCelsius
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
+        }
+        .onForeground {
+            viewModel.refetchLastCity()
+        }
+        .alert(
+            isPresented: $viewModel.showAlert) {
+                Alert(
+                    title: Text(viewModel.currentAlert?.title ?? ""),
+                    message: Text(viewModel.currentAlert?.title ?? ""))
             }
-        } detail: {
-            Text("Select an item")
+        
+    }
+    
+    // MARK: - Extracted Views
+    private var toggleFahrenheitInsteadOfCelsius: some View {
+        Toggle(isOn: $fahrenheitInsteadOfCelsius) {
+            Text(fahrenheitInsteadOfCelsius ? "°F" : "°C")
+                .font(.callout.bold())
+        }
+        .padding()
+        .background(Color(.systemBackground).opacity(0.8))
+        .clipShape(Capsule())
+        .frame(width: 125)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding()
+    }
+    
+    private var searchBar: some View {
+        SearchBar(
+            text: $searchText,
+            isSearching: $isSearching,
+            results: $viewModel.searchResults,
+            searchResultsWithWeather: $viewModel.searchResultsWithWeather
+        ) { id in
+            Task {
+                await viewModel.fetchWeather(by: id)
+                isSearching = false
+                searchText = ""
+            }
         }
     }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+    
+    private var weatherContent: some View {
+        Group {
+            if let weather = viewModel.currentWeather {
+                WeatherView(weather: weather)
+            } else {
+                noCitySelectedMessage
+            }
         }
     }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+    
+    private var noCitySelectedMessage: some View {
+        VStack {
+            Spacer()
+            Text(Constants.noCitySelectedMessage)
+                .font(.title.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.3)
+            Text("\(Constants.searchPromptPrefix) \(viewModel.searchResults.isEmpty ? Constants.searchPromptSuffixSearch : Constants.searchPromptSuffixSelect) \(Constants.searchPromptSuffixCity)")
+                .font(.callout.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.3)
+            Spacer()
+        }
+    }
+    
+    // MARK: - Methods
+    private func handleSearchTextChange(_ newValue: String) {
+        debouncer.call {
+            Task {
+                await viewModel.searchCities(query: newValue)
             }
         }
     }
@@ -57,5 +119,4 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }
